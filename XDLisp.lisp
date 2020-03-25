@@ -301,6 +301,83 @@
         (t (set-front-ptr queue (cdr (front-ptr queue)))
            queue)))
 
+(defun value (x)
+  (car x))
+
+(defun left-subtree (x)
+  (cadr x))
+
+(defun right-subtree (x)
+  (caddr x))
+
+(defun grow-tree (x tree)
+  (cond ((null tree) (make-tree x nil nil))
+        ((= x (value tree)) tree)
+        ((< x (value tree))
+         (make-tree (value tree)
+                    (grow-tree x (left-subtree tree))
+                    (right-subtree tree)))
+        (t (make-tree (value tree)
+                      (left-subtree tree)
+                      (grow-tree x (right-subtree tree))))))
+
+(defun make-tree (value left right)
+  (list value left right))
+
+(defun search-tree (x tree)
+  (cond ((null tree) nil)
+        ((= x (value tree)) (cdr tree))
+        ((< x (value tree))
+         (search-tree x (left-subtree tree)))
+        ((> x (value tree))
+         (search-tree x (right-subtree tree)))))
+
+(defun leaf-nodep (tree)
+  (atom tree))
+
+(defun left-branch (tree)
+  (car tree))
+
+(defun right-branch (tree)
+  (cdr tree))
+
+(defun enumerate-tree (tree)
+  (cond
+    ((null tree) nil)
+    ((leaf-nodep tree)
+     (cons tree nil))
+    (t (append-streams (enumerate-tree (left-branch tree))
+                       (enumerate-tree (right-branch tree))))))
+
+(defun append-streams (s1 s2)
+  (if (null s1)
+      s2
+      (cons (car s1)
+            (append-streams (cdr s1) s2))))
+
+(defun filter-odd (s)
+  (cond ((null s) nil)
+        ((oddp (car s))
+         (cons (car s) (filter-odd (cdr s))))
+        (t (filter-odd (cdr s)))))
+
+(defun map-square (s)
+    (if (null s)
+        nil
+        (cons (square (car s))
+              (map-square (cdr s)))))
+
+(defun square (n)
+  (expt n 2))
+
+(defun accumulate-+ (s)
+  (if (null s)
+      0
+      (+ (car s) (accumulate-+ (cdr s)))))
+
+(defun sum-odd-square (tree)
+  (accumulate-+ (map-square (filter-odd (enumerate-tree tree)))))
+
 (defun enumerate-interval (low high)
   (if (> low high)
       nil
@@ -330,26 +407,6 @@
   (if (= count 0)
       b
       (fib-iter (+ a b) a (1- count))))
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-(defun filter-odd (s)
-  (cond
-    ((null s) nil)
-    ((oddp (car s))
-     (cons (car s) (filter-odd (cdr s))))
-    (t (filter-odd (cdr s)))))
-(defun map-square (s)
-  (if (null s)
-      nil
-      (cons (square (car s))
-            (map-square (cdr s)))))
-(defun square (n)
-  (expt n 2))
-(defun append-streams (s1 s2)
-  (if (null s1)
-      s2
-      (cons (car s1)
-            (append-streams (cdr s1) s2))))
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defun list-square-fibs (n)
   (accumulate-cons
@@ -485,6 +542,718 @@
     (t (cons-stream (+ (head s1) (head s2))
                     (add-streams (tail s1)
                                  (tail s2))))))
+
+(defstruct board
+  squares
+  player)
+
+(defvar *board-width* 3 "Width of a tic-tac-toe board")
+
+(defvar *look-ahead* 3 "Number of plies to look ahead")
+
+(defvar *min-player* 'O "The minimizing player")
+
+(defvar *max-player* 'X "The maximizing player")
+
+(defmacro iterate (name bindngs &body body)
+  `(labels ((,name ,(mapcar #'first bindngs)
+              ,@body))
+     (,name ,@(mapcar #'second bindngs))))
+
+(defmacro select (selector-form &rest clauses)
+  (let ((selector (gensym "SELECTOR-")))
+    `(let ((,selector ,selector-form))
+       (cond ,@(mapcar #'(lambda (clause)
+                           `((equal ,(car clause) ,selector)
+                             ,@(cdr clause)))
+                       clauses)))))
+
+(defun opponent (player)
+  (select player
+          (*min-player* *max-player*)
+          (*max-player* *min-player*)
+          (nil nil)))
+
+(defun rank-board (board)
+  (funcall (if (eq (board-player board) *min-player*)
+               #'+
+               #'-)
+           (apply #'+ (mapcar #'(lambda (sequence)
+                                  (rank-possible-win
+                                   board
+                                   sequence))
+                              (possible-tic-tac-toe-wins *board-width*)
+                              ))))
+
+(defun enumerate (start increment count)
+  (do ((n start (+ n increment))
+       (l nil (cons n l))
+       (i count (1- i)))
+      ((= i 0) (nreverse l))))
+
+(defun possible-tic-tac-toe-wins (*board-width*)
+  (append
+   (mapcar #'(lambda(n)
+               (enumerate n 1 *board-width*))
+           (enumerate 0 *board-width* *board-width*))
+   (mapcar #'(lambda(n)
+               (enumerate n *board-width* *board-width*))
+           (enumerate 0 1 *board-width*))
+   (list (enumerate 0 (1+ *board-width*) *board-width*)
+         (enumerate (1- *board-width*)
+                    (1- *board-width*)
+                    *board-width*))))
+
+(defun rank-possible-win (board squares)
+  (iterate loopy ((rest squares)
+                  (number-of-occupied-squares 0)
+                  (no-opponents? t))
+    (if (null rest)
+        (if no-opponents?
+            (if (= number-of-occupied-squares *board-width*)
+                (winning-score board)
+                number-of-occupied-squares)
+            0)
+        (let ((square (svref (board-squares board)
+                             (car rest))))
+          (loopy (cdr rest)
+                 (+ number-of-occupied-squares
+                 (if (eq square
+                     (opponent (board-player board)))
+                 1
+                 0))
+                 (and no-opponents?
+                      (not (eq square (board-player board)))))))))
+
+(defun make-leaf (node)
+  (make-tree node nil))
+
+(defun tree-parent (tree)
+  (car tree))
+
+(defun tree-children (tree)
+  (cdr tree))
+
+(defun leafp (tree)
+  (null (tree-children tree)))
+
+(defun grow-tree (board depth)
+  (if (= depth 0)
+      (make-leaf board)
+      (make-tree board
+                 (mapcar #'(lambda (child)
+                             (grow-tree child (1- depth)))
+                         (adjacent-boards board)))))
+
+(defun adjacent-boards (board)
+  (if (terminal-board-p board)
+      nil
+      (do ((i 0 (1+ i))
+           (moves nil (if (null (svref (board-squares board) i))
+                          (cons (make-move board i) moves) moves)))
+          ((= i (length (board-squares board))) moves))))
+
+(defun make-move (from-board square)
+  (let ((new-squares (make-array (length (board-squares from-board)))))
+    (dotimes (i (length new-squares))
+      (setf (svref new-squares i) (svref (board-squares from-board) i)))
+      (setf (svref new-squares square) (board-player from-board))
+      (make-board :squares new-squares
+                  :player (opponent (board-player from-board)))))
+
+(defun minimax (tree)
+  (if (leafp tree)
+      (values (rank-board (tree-parent tree))
+              (tree-parent tree))
+      (let* ((child-ranks (mapcar #'(lambda (subtree)
+                                     (minimax subtree))
+                                 (tree-children tree)))
+        (best-rank (apply (if (eq (board-player (tree-parent tree))
+                                  *min-player*)
+                              #'min
+                              #'max)
+                          child-ranks)))
+      (values best-rank
+              (tree-parent (nth (position best-rank child-ranks)
+                                (tree-children tree)))))))
+
+(defun winning-score (board)
+  (length (board-squares board)))
+
+(defun terminal-board-p (board)
+  (or (winning-board-p board)
+      (if (position nil (board-squares board))
+          nil
+          :tie)))
+
+(defun winning-board-p (board)
+  (dolist (possible-win (possible-tic-tac-toe-wins *board-width*))
+    (iterate loopy ((rest (cdr possible-win))
+                    (player (svref (board-squares board)
+                                   (car possible-win))))
+             (if (null rest)
+                 (unless (null player)
+                   (return-from winning-board-p player))
+                 (loopy (cdr rest)
+                        (if (eq player (svref (board-squares
+                                               board)
+                                              (car rest)))
+                            player
+                            nil))))))
+
+(defun make-tree (root children)
+  (cons root children))
+
+(defun ttt (&optional (first-player *max-player*))
+  (format t
+          "~& The computer will play ~A, You will play ~A.~%"
+          *min-player*
+          *max-player*)
+  (let ((initial-board (make-board
+                        :squares (make-array
+                                  (expt *board-width* 2) :initial-element nil)
+                        :player first-player)))
+    (iterate loopy ((board initial-board))
+             (print-board board)
+      (let ((board-status (terminal-board-p board)))
+               (select board-status
+                       (*min-player*
+                        (format t "The computer wins. ~%"))
+                       (*max-player*
+                        (format t "You win. ~%"))
+                       (:tie
+                        (format t "The game is draw."))
+                       (nil
+                        (loopy (if (eq (board-player board)
+                                       *min-player*)
+                                   (computer-move board)
+                                   (human-move board)))))))))
+
+(defun computer-move (board)
+  (format t "Computer moves. Searching...")
+  (let ((game-tree (grow-tree board *look-ahead*)))
+    (multiple-value-bind (rank board)
+        (minimax game-tree)
+    (declare (ignore rank))
+    (format t " done. ~%")
+    board)))
+
+(defun human-move (board)
+  (format t " Your move. Please enter the number of a square: ")
+  (let ((square (read)))
+    (if (null (svref (board-squares board) square))
+        (progn (setf (svref (board-squares board) square)
+                     *max-player*)
+               (setf (board-player board)
+                     (opponent (board-player board)))
+               board)
+        (progn
+          (format t " Square ~A is occupied. Try again. ~%" square)
+          (human-move board)))))
+
+(defun print-board (board)
+  (labels ((divider ()
+             (dotimes (i *board-width*
+                         (format t "|~%"))
+               (format t "|-----"))))
+    (terpri)
+    (divider)
+    (dotimes (i (length (board-squares board)))
+      (let ((square (svref (board-squares board) i)))
+        (format t "|  ~A  " (if (null square) " " square)))
+      (when (= (mod (1+ i) *board-width*) 0)
+        (format t "|~%")
+        (divider)))))
+
+(defvar *myerrors* nil)
+
+(defvar *mybugs* nil)
+
+(defvar *mysave* nil)
+
+(defvar *keytable* nil)
+
+(defun initialise ()
+  (setf *myerrors* nil)
+  (setf *mybugs* nil)
+  (setf *mysave* nil))
+
+(defun execute (analysed-list)
+  (cond (*myerrors* t)
+        ((null analysed-list) nil)
+        (t (when *mybugs* (print "EXECUTE")
+                 (princ analysed-list)
+                 (terpri))
+           (eval analysed-list) t)
+    ))
+
+(defun analyse (input-string)
+  (cond (*myerrors* t)
+        ((string-equal input-string "quit") nil)
+        ((string-equal input-string "") t)
+        (t (syntax (reduce-token-list (scanner input-string))))))
+
+(defun ABC ()
+  (initialise)
+  (princ "This is the ABC Interpreter")
+  (terpri)
+  (princ '|ABC> |)
+  (do ()
+      ((not (execute (analyse (read-line))))
+       (princ "End of the ABC Interpreter") t)
+    (setf *myerrors* nil)
+    (princ '|ABC> |)))
+
+(setf *keytable* '(("]" 37)
+                  (("/" 56 TRUNCATE)
+                   (("+" 55 +)
+                    ((")" 57)
+                     (("(" 54) nil nil)
+                     (("*" 56 *) nil nil))
+                    (("," 30) nil (("-" 55 -) nil (("->" 33) nil nil))))
+                   (("put" 6)
+                    (("=" 53 =)
+                     ((";" 32)
+                      ((":" 31) nil nil)
+                      (("<" 53 <) nil nil))
+                     (("if" 3)
+                      (("else" 1)
+                       ((">" 53 >) nil nil)
+                       nil)
+                      (("in" 4)
+                       nil
+                       (("keys" 5) nil nil))))
+                    (("to" 9)
+                     (("return" 7)
+                      nil
+                      (("select" 8) nil nil))
+                     (("[" 36)
+                      (("write" 11)
+                       (("while" 10) nil nil)
+                       nil)
+                      nil))))
+                  (("{}" 38 nil) nil nil)))
+
+(defun keyentry (btree)
+  (car btree))
+
+
+(defun left (btree)
+  (cadr btree))
+
+(defun right (btree)
+  (caddr btree))
+
+(defun build-btree (record leftvalue rightvalue)
+  (list record leftvalue rightvalue))
+
+(defun blookup (key btree)
+  (when btree
+    (let ((testkey (car (keyentry btree))))
+      (cond ((string-equal key testkey)
+             (cdr (keyentry btree)))
+            ((string-lessp key testkey)
+             (blookup key (left btree)))
+            (t (blookup key (right btree)))))))
+
+(defun binsert (key value btree)
+  (let ((record (if (atom value)
+                    (list key value)
+                    (cons key value))))
+    (if (null btree)
+        (build-btree record nil nil)
+        (let ((testkey (car (keyentry btree))))
+          (cond ((string-equal key testkey)
+                 (build-btree record
+                              (left btree)
+                              (right
+                               btree)))
+                ((string-lessp key testkey)
+                 (build-btree (keyentry btree)
+                              (binsert key
+                                       value
+                                       (left btree))
+                              (right btree)))
+                (t (build-btree (keyentry btree)
+                                (left btree)
+                                (binsert key
+                                         value
+                                         (right btree))))
+                )))))
+
+(defun insert (key value)
+  (setf *keytable* (binsert key value *keytable*)))
+
+(defun lookup (key)
+  (blookup key *keytable*))
+
+(defun scanner (instring)
+  (let* ((spacestring
+           (make-sequence '(vector character)
+                          10 :initial-element #\SPACE))
+         (outlist nil)
+         (pos2 (position #\SPACE instring))
+         (pos1 0)
+         (stringend (length instring))
+         (newstring spacestring))
+    (loop
+      (unless pos2 (setf pos2 stringend))
+      (setf newstring (subseq instring pos1 pos2))
+      (cond ((digit-char-p (char newstring 0))
+             (push (list '50 (parse-integer newstring))
+                   outlist))
+            ((lookup newstring)
+             (push (lookup newstring) outlist))
+            (t (push (list '49 newstring) outlist)))
+      (when (eq pos2 stringend)
+        (when *mybugs*
+          (print "SCANNER") (princ outlist))
+        (return outlist))
+      (setf pos1 (1+ pos2)
+            pos2 (position #\SPACE instring :start pos1)))))
+
+(insert "put" 6)
+(insert "if" 3)
+(insert "else" 1)
+(insert "in" 4)
+(insert "keys" 5)
+(insert "to" 9)
+(insert "return" 7)
+(insert "select" 8)
+(insert "write" 11)
+(insert "while" 10)
+
+(defun reduce-token-list (token-list)
+  (let ((reduced-list nil)
+        (algebraic-list nil))
+    (loop
+      (cond
+        (*myerrors* (return t))
+        ((and (null token-list)
+              (not (null algebraic-list)))
+         (push (solvex algebraic-list) reduced-list)
+         (return reduced-list))
+        ((null token-list)
+         (return reduced-list))
+        (t (let ((token (pop token-list)))
+             (cond
+               ((and (< (car token) 58)
+                     (> (car token) 49))
+                (push token algebraic-list))
+               ((null algebraic-list)
+                (push token reduced-list))
+               ((null (cdr algebraic-list))
+                (push (pop algebraic-list) reduced-list)
+                (push token reduced-list))
+               (t (push (solvex algebraic-list) reduced-list)
+                  (push token reduced-list)
+                  (setf algebraic-list nil)))))))
+    (when *mybugs*
+      (print "Reduced-token-list")
+      (princ reduced-list))
+    reduced-list))
+
+(defun tos (name)
+  (when name (car name)))
+
+(defun solvex (tlist)
+  (let ((VariableStack nil)
+        (OperatorStack nil))
+    (when *mybugs*
+      (print "SOLVEX INPUT")
+      (princ tlist))
+    (labels ((solve (tlist)
+               (labels ((checktoken (tokenlist)
+                          (let ((token (car tokenlist)))
+                            (cond ((= token 50)
+                                   (push (cadr tokenlist) VariableStack))
+                                  ((= token 51)
+                                   (push tokenlist VariableStack))
+                                  ((= token 54)
+                                   (push tokenlist OperatorStack))
+                                  ((= token 57)
+                                   (evaluate tokenlist))
+                                  ((null OperatorStack)
+                                   (push tokenlist OperatorStack))
+                                  ((> token (car (tos OperatorStack)))
+                                   (push tokenlist OperatorStack))
+                                  (t (evaluate tokenlist)))))
+                        (stackeval ()
+                          (let ((op2 (pop VariableStack))
+                                (op1 (pop VariableStack)))
+                            (cond
+                              ((and (numberp op2) (numberp op1)
+                                    (not (equal 53 (caar OperatorStack))))
+                               (push (eval (list (cadr (pop OperatorStack))
+                                                 op1
+                                                 op2))
+                                     VariableStack))
+                              (t (push (list (cadr (pop OperatorStack))
+                                             op1
+                                             op2)
+                                       VariableStack)))))
+                        (evaluate (operatortoken)
+                          (if (null OperatorStack)
+                              (push operatortoken OperatorStack)
+                              (let ((token (car operatortoken))
+                                    (stacktoken (car (tos OperatorStack))))
+                                (cond
+                                  ((and (= stacktoken 54)
+                                        (= token 57))
+                                   (pop OperatorStack))
+                                  ((= token 57)
+                                   (stackeval)
+                                   (evaluate operatortoken))
+                                  ((> token stacktoken)
+                                   (push operatortoken OperatorStack))
+                                  (t (stackeval)
+                                     (evaluate operatortoken))))))
+                        (emptystack ()
+                          (do ()
+                              ((null OperatorStack) nil)
+                            (stackeval))))
+                 (cond ((null tlist) (emptystack))
+                       (t (checktoken (car tlist))
+                          (solve (cdr tlist)))))))
+      (solve tlist))
+    (when *mybugs*
+      (print "SOLVEX OUTPUT")
+      (princ VariableStack))
+    (cond ((numberp (car VariableStack))
+           (list '50 (car VariableStack)))
+          (t (list '52 (car VariableStack))))))
+
+(defun flatten (KTB)
+  (cond ((null KTB) nil)
+        ((null (left KTB))
+         (append (car KTB) (flatten (right KTB))))
+        ((null (right KTB))
+         (append (flatten (left KTB)) (car KTB)))
+        (t (append (flatten (left KTB))
+                   (car KTB)
+                   (flatten (right KTB))))))
+
+(defun VarSub (a)
+  (when *mybugs* (print "VarSub entry") (princ a))
+  (cond ((null a) nil)
+        ((and (numberp (car a)) (= 50 (car a)))
+         (cadr a))
+        ((and (numberp (car a)) (= 51 (car a)))
+         (cadr a))
+        ((and (numberp (car a)) (= 52 (car a)))
+         (VarSub1 (cadr a)))
+        (t (princ "Error in algebraic expression")
+           (terpri)
+           t)))
+
+(defun VarSub1 (a)
+  (cond ((null a) nil)
+        ((and (numberp (car a))
+              (= 51 (car a))
+              (symbolp (cadr a))
+              (not (null (cadr a))))
+         (cadr a))
+         ((atom (car a)) (cons (car a)
+                               (VarSub1 (cdr a))))
+         (t (cons (VarSub1 (car a))
+                  (VarSub1 (cdr a))))))
+
+(defun search1 (token tokenlist)
+  (do ((n 0 (1+ n)))
+      ((or (null tokenlist)
+           (equal token (car tokenlist)))
+       (if (null tokenlist) nil n))
+    (pop tokenlist)))
+
+(defun search2 (token tokenlist)
+  (cond ((null tokenlist) nil)
+        ((equal token (car tokenlist)) t)
+        ((atom (car tokenlist))
+         (search2 token (cdr tokenlist)))
+        (t (or (search2 token (car tokenlist))
+               (search2 token (cdr tokenlist))))))
+
+(defun set-numvar (variablename value)
+  (setf *keytable*
+        (insert variablename
+                (list '51
+                      (intern variablename)
+                      variablename)))
+  (set (cadr (lookup variablename))
+       value))
+
+(defun VarName (source)
+  (cadr source))
+
+(defun putfn (a)
+  (let ((inpos+ (1+ (search1 '(4) a))))
+    (labels ((putfn2 (a)
+               (cond ((null a) nil)
+                     ((= 4 (caar a)) nil)
+                     ((= 30 (caar a))
+                      (progn (pop a)
+                             (putfn2 a)))
+                     (t (cons (VarName (nth inpos+ a))
+                              (cons (VarSub (pop a))
+                                    (putfn2 a)))))))
+      (cond ((= 51 (car (nth inpos+ a)))
+             (if (search1 '(33) a)
+                 (list 'progn
+                       (cons 'psetf (putfn2 a))
+                       '(33))
+                 (cons 'psetf (putfn2 a))))
+            ((= 48 (car (nth inpos+ a)))
+             (insert (caddr (nth inpos+ a))
+                     (cons '48
+                           (cons (binsert
+                                  (cadr (nth (+ 2 inpos+)
+                                             a))
+                                  (tos a)
+                                  (cadr (nth inpos+ a)))
+                                 (cddr (nth inpos+ a)))))
+             t)
+            ((= 49 (car (nth inpos+ a)))
+             (cond ((= '38 (caar a))
+                    (insert
+                     (cadr (nth inpos+ a))
+                     (cons '48
+                           (cons nil
+                                 (cdr (nth inpos+ a)))))
+                    t)
+                   (t (do ((tmp a (cdr tmp)))
+                          ((= 4 (caar tmp)) t)
+                        (unless (= 30 (caar tmp))
+                          (set-numvar
+                           (cadr (nth inpos+ tmp))
+                           (cadar tmp)))))))
+            (t (princ "Error in variable type")
+               (terpri)
+               (setf *myerrors* t))))))
+
+(defun leave-keys (tablevar)
+  (do ((newvar nil
+               (prog1
+                   (push (pop tablevar) newvar)
+                 (pop tablevar)
+                 (pop tablevar))))
+      ((null tablevar) (reverse newvar))))
+
+(defun writefn (a)
+  (let ((writelist nil))
+    (loop
+      (unless a (return (append
+                         (cons 'progn (reverse writelist))
+                         '((terpri)))))
+      (let* ((tokenlist (pop a))
+             (token (car tokenlist)))
+        (cond ((= 33 token)
+               (push '(33) writelist))
+              ((= 30 token)
+               t)
+              ((or (= 50 token)
+                   (= 51 token))
+               (push (list 'format
+                           't
+                           '"~8@A"
+                           (cadr tokenlist))
+                     writelist))
+              ((= 52 token)
+               (push (list 'format
+                           't
+                           '"~8@A"
+                           (VarSub tokenlist))
+                     writelist))
+              ((= 48 token)
+               (cond ((null a)
+                      (push (list
+                             'princ
+                             (list
+                              'quote
+                              (remove
+                               '50
+                               (flatten (cadr tokenlist)))))
+                            writelist))
+                     ((= 36 (car (tos a)))
+                      (push (list 'format
+                                  't
+                                  '"~8@A"
+                                  (cadr
+                                   (blookup
+                                    (cadadr a)
+                                    (cadr tokenlist))))
+                            writelist)
+                      (return (append
+                               (cons 'progn
+                                     (reverse writelist))
+                               '((terpri)))))
+                     (t (princ "Error in tale lookup")
+                        (terpri)
+                        (setf *myerrors* t))))
+              ((= 49 token)
+               (push (list 'princ (cadr tokenlist))
+                     writelist))
+              ((= 5 token)
+               (push (list
+                      'princ
+                      (list 'quote
+                            (leave-keys
+                             (flatten (cadr (pop a))))))
+                     writelist))
+              ((= 32 token)
+               (push '(terpri) writelist))
+              (t (princ "Error in write list")
+                 (terpri)
+                 (setf *myerrors* t)))))))
+
+(defun iffn (a)
+  (list 'if
+        (VarSub (pop a))
+        (progn (pop a) (syntax1 a))))
+
+(defun whilefn (a)
+  (when *mybugs* (print "whilefn") (princ a))
+  (list 'loop
+        (list 'if
+              (VarSub (pop a))
+              (progn (pop a) (syntax1 a))
+              '(return))))
+
+(defun syntax (a)
+  (let ((temp nil))
+    (when *mybugs*
+      (print "Syntax")
+      (princ a))
+    (setf temp (syntax1 a))
+    (when *mybugs*
+      (print "End of Syntax")
+      (princ temp))
+    (cond ((atom temp) temp)
+          (*mysave* (setf temp
+                          (subst temp
+                                 '(33)
+                                 *mysave*
+                                 :test #'equal))
+                    (setf *mysave* nil)
+                    temp)
+          ((search2 '(33) temp)
+           (setf *mysave* temp)
+           t)
+          (t temp))))
+
+(defun syntax1 (a)
+  (when a
+    (let* ((tokenterm (pop a))
+           (token (car tokenterm)))
+      (cond ((= token 6) (putfn a))
+            ((= token 50)
+             (writefn (push tokenterm a)))
+            ((= token 11)
+             (writefn a))
+            ((= token 3) (iffn a))
+            ((= token 10) (whilefn a))
+            (t (princ "Error in syntax")
+               (terpri)
+               (setf *myerrors* t))))))
 
 (defun +c (z1 z2)
   (make-rectangular (+ (real-part z1)
