@@ -1406,9 +1406,6 @@
 (defun float-float-*/2 (x y)
   (/ (* x y) 2))
 
-(mydefmethod */2 ((x fixnum) (y float))
-  (float-float-*/2 (float x) y))
-
 (defvar *generic-function-methods*
   (make-hash-table)
   "Hash table mapping a generic func to a list of methods")
@@ -1464,7 +1461,7 @@
                           #'(lambda ,lambda-list ,@body))
             ',generic-name)))
 
-(defun myadd-methods (generic-name type-constraints handler)
+(defun myadd-method (generic-name type-constraints handler)
   (let ((existing-methods (lookup-methods generic-name)))
     (dolist (method existing-methods
                     (push (make-mymethod :type-constraints
@@ -1482,7 +1479,7 @@
                   (types nil))
            (let ((arg (car rest)))
              (if (or (null rest)
-                     (memeber arg '(&optional &rest &key &aux)))
+                     (member arg '(&optional &rest &key &aux)))
                  (values (append (nreverse lambda-list) rest)
                          (nreverse types))
                  (loopy (cdr rest)
@@ -1494,3 +1491,6 @@
                                   (second arg)
                                   t)
                               types))))))
+
+(mydefmethod */2 ((x fixnum) (y float))
+             (float-float-*/2 (float x) y))
