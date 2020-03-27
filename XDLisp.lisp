@@ -1,3 +1,49 @@
+(defun weight (op)
+  (cond
+    ((equal op '=) 1)
+    ((equal op '+) 2)
+    ((equal op '-) 2)
+    ((equal op '*) 3)
+    ((equal op '/) 3)
+    ((equal op '\\) 3)
+    ((equal op '^) 4)
+    (t (print (list op 'not 'an 'operator)) 10)))
+
+(defun opcode (op)
+  (cond
+    ((equal op '=) 'setq)
+    ((equal op '+) '+)
+    ((equal op '-) '-)
+    ((equal op '*) '*)
+    ((equal op '/) '/)
+    ((equal op '\\) 'rem)
+    ((equal op '^) 'expt)
+    (t (print (list op 'not 'an 'operator)) op)))
+
+(defun inf-to-pre (ae)
+  (cond
+    ((atom ae) ae)
+    (t (inf-aux ae nil nil))))
+
+(defun inf-aux (ae opt opd)
+  (inf-iter (cdr ae) opt (cons (inf-to-pre (car ae)) opd)))
+
+(defun inf-iter (ae opt opd)
+  (cond
+    ((and (null ae) (null opt))
+     (car opd))
+    ((and (not (null ae))
+          (or (null opt)
+              (> (weight (car ae))
+                 (weight (car opt)))))
+     (inf-aux (cdr ae) (cons (car ae) opt) opd))
+    (t (inf-iter ae
+                 (cdr opt)
+                 (cons (list (opcode (car opt))
+                             (cadr opd)
+                             (car opd))
+                       (cddr opd))))))
+
 (defun deriv (var expr)
   (if (atom expr)
       (if (eq expr var)
@@ -147,6 +193,19 @@
           (new-deriv var (base expr))))
         (t (error "Invalid expression"))))
 
+(defun hanoi (n)
+  (transfer 'a 'b 'c n))
+
+(defun transfer (from to temp number)
+  (if (eql number 1)
+      (move-disk from to)
+      (append (transfer from temp to (1- number))
+              (move-disk from to)
+              (transfer temp to from (1- number)))))
+
+(defun move-disk (from to)
+  (print (list (list 'move 'disk 'from from 'to to))))
+
 (defun threat (i j a b)
   (or (equal i a)
       (equal j b)
@@ -194,6 +253,67 @@
                                size)))
            (queen-sub board n (+ m 1) size)
            )))
+
+(setf (get 's 'children) '(l o))
+(setf (get 'l 'children) '(m f))
+(setf (get 'm 'children) '(n))
+(setf (get 'n 'children) '(f))
+(setf (get 'o 'children) '(p q))
+(setf (get 'p 'children) '(f))
+(setf (get 'q 'children) '(f))
+
+(defun expand (node) (get node 'children))
+
+(defun depth (start finish)
+  (depth1 (list start) finish))
+
+(defun depth1 (queue finish)
+  (cond
+    ((null queue) nil)
+    ((equal finish (car queue)) t)
+    (t (depth1
+        (append (expand (car queue)) (cdr queue))
+        finish))))
+
+(defun new-depth (start finish)
+  (new-depth1 (list (list start)) finish))
+
+(defun new-depth1 (queue finish)
+  (cond
+    ((null queue) nil)
+    ((equal finish (caar queue)) (reverse (car queue)))
+    (t (new-depth1
+        (append (new-new-expand (car queue)) (cdr queue))
+        finish))))
+
+(defun new-expand (path)
+  (mapcar #'(lambda (children) (cons children path))
+          (get (car path) 'children)))
+
+(defun new-new-expand (path)
+  (remove-if
+   #'(lambda (path) (member (car path) (cdr path)))
+   (mapcar #'(lambda (child) (cons child path))
+              (get (car path) 'children))))
+
+(setf (get 's 'children) '(a b))
+(setf (get 'a 'children) '(s b f))
+(setf (get 'b 'children) '(s a c))
+(setf (get 'c 'children) '(b f))
+(setf (get 'f 'children) '(a c))
+
+(defun breadth (start finish)
+  (breadth1 (list (list start)) finish))
+
+(defun breadth1 (queue finish)
+  (cond
+    ((null queue) nil)
+    ((equal finish (caar queue))
+     (reverse (car queue)))
+    (t (breadth1
+        (append (cdr queue)
+                (new-new-expand (car queue)))
+        finish))))
 
 (set-macro-character #\?
  #'(lambda (stream char)
